@@ -20,8 +20,12 @@
 
 #include "FileURLProtocol.h"
 #include "filesystem/File.h"
+#include "filesystem/PVRFile.h"
 #include "utils/log.h"
 #include "FileItem.h"
+#include "URL.h"
+
+using namespace PVR;
 
 #define URL_RDONLY 1  /**< read-only */
 #define URL_WRONLY 2  /**< write-only */
@@ -40,6 +44,7 @@ int CFileURLProtocol::Open(AML_URLContext *h, const char *filename, int flags)
   }
 
   CStdString url = filename;
+  std::vector <void*> * files = new std::vector<void*>;
   if (url.Left(strlen("xb-http://")).Equals("xb-http://"))
   {
     url = url.Right(url.size() - strlen("xb-"));
@@ -64,6 +69,25 @@ int CFileURLProtocol::Open(AML_URLContext *h, const char *filename, int flags)
   {
     url = url.Right(url.size() - strlen("xb-"));
   }
+  else if (url.Left(strlen("xb-pvr://")).Equals("xb-pvr://"))
+  {
+    url = url.Right(url.size() - strlen("xb-"));
+    XFILE::CPVRFile *pvrFile = new XFILE::CPVRFile;
+    CURL pvrURL = CURL(url);
+    if (!pvrFile->Open(pvrURL))
+    {
+      delete pvrFile;
+      return -EIO;
+    }
+    files->insert(files->begin(), (void *)pvrFile);
+    url = XFILE::CPVRFile::TranslatePVRFilename(url.c_str());
+    if(url.substr(0, 6) == "pvr://")
+    {
+      // this addon does not support raw streams (not supported)
+      delete pvrFile;
+      return -EIO;
+    }
+  }
   CLog::Log(LOGDEBUG, "CFileURLProtocol::Open filename2(%s)", url.c_str());
   // open the file, always in read mode, calc bitrate
   unsigned int cflags = READ_BITRATE;
@@ -76,10 +100,21 @@ int CFileURLProtocol::Open(AML_URLContext *h, const char *filename, int flags)
   if (!cfile->Open(url, cflags))
   {
     delete cfile;
+    if (files->size())
+    {
+      // there is a pvr file... delete it
+      XFILE::CPVRFile *pvrFile = (XFILE::CPVRFile*)files->at(0);
+      pvrFile->Close();
+      delete pvrFile;
+      files->empty();
+      delete files;
+    }
     return -EIO;
   }
 
-  h->priv_data = (void *)cfile;
+  files->insert(files->begin(), (void *)cfile);
+
+  h->priv_data = (void *)files;
 
   return 0;
 }
@@ -87,7 +122,8 @@ int CFileURLProtocol::Open(AML_URLContext *h, const char *filename, int flags)
 //========================================================================
 int CFileURLProtocol::Read(AML_URLContext *h, unsigned char *buf, int size)
 {
-  XFILE::CFile *cfile = (XFILE::CFile*)h->priv_data;
+  std::vector <void*> * files = (std::vector <void*> *)h->priv_data;
+  XFILE::CFile *cfile = (XFILE::CFile*)files->at(0);
 
   int readsize = cfile->Read(buf, size);
   //CLog::Log(LOGDEBUG, "CFileURLProtocol::Read size(%d), readsize(%d)", size, readsize);
@@ -106,7 +142,8 @@ int CFileURLProtocol::Write(AML_URLContext *h, unsigned char *buf, int size)
 int64_t CFileURLProtocol::Seek(AML_URLContext *h, int64_t pos, int whence)
 {
   //CLog::Log(LOGDEBUG, "CFileURLProtocol::Seek1 pos(%lld), whence(%d)", pos, whence);
-  XFILE::CFile *cfile = (XFILE::CFile*)h->priv_data;
+  std::vector <void*> * files = (std::vector <void*> *)h->priv_data;
+  XFILE::CFile *cfile = (XFILE::CFile*)files->at(0);
   whence &= ~AVSEEK_FORCE;
 
   // seek to the end of file
@@ -124,7 +161,8 @@ int64_t CFileURLProtocol::Seek(AML_URLContext *h, int64_t pos, int whence)
 int64_t CFileURLProtocol::SeekEx(AML_URLContext *h, int64_t pos, int whence)
 {
   //CLog::Log(LOGDEBUG, "CFileURLProtocol::SeekEx1 pos(%lld), whence(%d)", pos, whence);
-  XFILE::CFile *cfile = (XFILE::CFile*)h->priv_data;
+  std::vector <void*> * files = (std::vector <void*> *)h->priv_data;
+  XFILE::CFile *cfile = (XFILE::CFile*)files->at(0);
   whence &= ~AVSEEK_FORCE;
 
   // seek to the end of file
@@ -142,9 +180,20 @@ int64_t CFileURLProtocol::SeekEx(AML_URLContext *h, int64_t pos, int whence)
 int CFileURLProtocol::Close(AML_URLContext *h)
 {
   CLog::Log(LOGDEBUG, "CFileURLProtocol::Close");
-  XFILE::CFile *cfile = (XFILE::CFile*)h->priv_data;
+  std::vector <void*> * files = (std::vector <void*> *)h->priv_data;
+  if (files->size() > 1)
+  {
+    // this is the pvr file... delete it
+    XFILE::CPVRFile *pvrfile = (XFILE::CPVRFile*)files->at(1);
+    pvrfile->Close();
+    delete pvrfile;
+  }
+  XFILE::CFile *cfile = (XFILE::CFile*)files->at(0);
   cfile->Close();
   delete cfile;
+
+  files->empty();
+  delete files;
 
   return 0;
 }

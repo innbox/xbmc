@@ -55,9 +55,20 @@
 #include "xbmc/cores/dvdplayer/DVDDemuxers/DVDDemuxVobsub.h"
 #include "settings/VideoSettings.h"
 
+// for pvr
+#include "Application.h"
+#include "ApplicationMessenger.h"
+#include "xbmc/pvr/PVRManager.h"
+#include "xbmc/pvr/addons/PVRClients.h"
+#include "xbmc/pvr/channels/PVRChannel.h"
+#include "xbmc/pvr/channels/PVRChannelGroupsContainer.h"
+#include "URL.h"
+
 // amlogic libplayer
 #include "utils/AMLUtils.h"
 #include "DllLibamplayer.h"
+
+using namespace PVR;
 
 static float VolumePercentToScale(float volume)
 {
@@ -1392,6 +1403,15 @@ void CAMLPlayer::Process()
     };
 
     CStdString url = m_item.GetPath();
+
+    // initial PVR support for tvheadend like addons (http streaming)
+    if (url.Left(strlen("pvr://")).Equals("pvr://"))
+    {
+      // the name string needs to persist
+      static const char *http_name = "xb-pvr";
+      vfs_protocol.name = http_name;
+      url = "xb-" + url;
+    }
     if (url.Left(strlen("smb://")).Equals("smb://"))
     {
       // the name string needs to persist
@@ -2431,5 +2451,84 @@ void CAMLPlayer::RenderUpdateCallBack(const void *ctx, const CRect &SrcRect, con
 {
   CAMLPlayer *player = (CAMLPlayer*)ctx;
   player->SetVideoRect(SrcRect, DestRect);
+}
+
+bool CAMLPlayer::OnAction(const CAction &action)
+{
+  if (m_item.IsPVRChannel())
+  {
+    CPVRChannelPtr channel;
+    CFileItemPtr item;
+    switch (action.GetID())
+    {
+      case ACTION_MOVE_UP:
+      case ACTION_NEXT_ITEM:
+      case ACTION_CHANNEL_UP:
+        g_PVRManager.GetCurrentChannel(channel);
+        item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelUp(*channel);
+        CApplicationMessenger::Get().PlayFile(*item.get(), false);
+        ShowPVRChannelInfo();
+        return true;
+      break;
+
+      case ACTION_MOVE_DOWN:
+      case ACTION_PREV_ITEM:
+      case ACTION_CHANNEL_DOWN:
+        g_PVRManager.GetCurrentChannel(channel);
+        item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelDown(*channel);
+        CApplicationMessenger::Get().PlayFile(*item.get(), false);
+        ShowPVRChannelInfo();
+        return true;
+      break;
+
+      case ACTION_CHANNEL_SWITCH:
+      {
+        // Offset from key codes back to button number
+        int iChannelNumber = action.GetAmount();
+        g_PVRManager.GetCurrentChannel(channel);
+        CFileItemPtr item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelNumber(iChannelNumber);
+        CApplicationMessenger::Get().PlayFile(*item.get(), false);
+        ShowPVRChannelInfo();
+        return true;
+      }
+      break;
+    }
+  }
+
+  // return false to inform the caller we didn't handle the message
+  return false;
+}
+
+
+bool CAMLPlayer::ShowPVRChannelInfo(void)
+{
+  bool bReturn(false);
+
+  if (g_guiSettings.GetBool("pvrmenu.infoswitch"))
+  {
+    int iTimeout = g_guiSettings.GetBool("pvrmenu.infotimeout") ? g_guiSettings.GetInt("pvrmenu.infotime") : 0;
+    g_PVRManager.ShowPlayerInfo(iTimeout);
+
+    bReturn = true;
+  }
+
+  return bReturn;
+}
+
+
+bool CAMLPlayer::CheckDelayedChannelEntry(void)
+{
+  bool bReturn(false);
+/*
+  if (m_iChannelEntryTimeOut > 0 && XbmcThreads::SystemClockMillis() >= m_iChannelEntryTimeOut)
+  {
+    CFileItem channelItem(g_application.CurrentFileItem());
+    CApplicationMessenger::Get().PlayFile(*channelItem, false);
+
+    bReturn = true;
+    m_iChannelEntryTimeOut = 0;
+  }
+*/
+  return bReturn;
 }
 

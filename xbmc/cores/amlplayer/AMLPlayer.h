@@ -152,7 +152,7 @@ public:
   virtual bool  HasMenu()                                         {return false;};
 
   virtual void  DoAudioWork()                                     {};
-  virtual bool  OnAction(const CAction &action)                   {return false;};
+  virtual bool  OnAction(const CAction &action);
 
   virtual bool  GetCurrentSubtitle(CStdString& strSubtitle);
   //returns a state that is needed for resuming from a specific time
@@ -193,6 +193,9 @@ private:
   bool          WaitForFormatValid(int timeout_ms);
   void          ClearStreamInfos();
   bool          GetStatus();
+
+  bool          ShowPVRChannelInfo(void);
+  bool          CheckDelayedChannelEntry(void);
 
   void          FindSubtitleFiles();
   int           AddSubtitleFile(const std::string& filename, const std::string& subfilename = "");
