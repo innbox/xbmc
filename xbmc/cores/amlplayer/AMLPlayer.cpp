@@ -2509,23 +2509,16 @@ bool CAMLPlayer::OnAction(const CAction &action)
 {
   if (m_item.IsPVRChannel())
   {
-    CPVRChannelPtr channel;
-    CFileItemPtr item;
-    unsigned int iChannelNumber;
     switch (action.GetID())
     {
       case ACTION_MOVE_UP:
       case ACTION_NEXT_ITEM:
       case ACTION_CHANNEL_UP:
       {
-        CSingleLock lock(m_channel_switch_csection);
-        g_PVRManager.ChannelUp(&iChannelNumber, true);
-        g_PVRManager.GetCurrentChannel(channel);
-        CFileItemPtr item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelNumber(iChannelNumber);
-        SetNextChannel(new CFileItem(*item->GetPVRChannelInfoTag()));
-        m_channelEntryTimer.StartZero();
-        UpdateApplication();
-        ShowPVRChannelInfo();
+        CFileItem currentFile(g_application.CurrentFileItem());
+        CPVRChannel *currentChannel = currentFile.GetPVRChannelInfoTag();
+        CFileItemPtr item = g_PVRChannelGroups->Get(currentChannel->IsRadio())->GetSelectedGroup()->GetByChannelUp(*currentChannel);
+        SwitchToChannel(item);
         return true;
       }
       break;
@@ -2534,29 +2527,21 @@ bool CAMLPlayer::OnAction(const CAction &action)
       case ACTION_PREV_ITEM:
       case ACTION_CHANNEL_DOWN:
       {
-        CSingleLock lock(m_channel_switch_csection);
-        g_PVRManager.ChannelDown(&iChannelNumber, true);
-        g_PVRManager.GetCurrentChannel(channel);
-        CFileItemPtr item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelNumber(iChannelNumber);
-        SetNextChannel(new CFileItem(*item->GetPVRChannelInfoTag()));
-        m_channelEntryTimer.StartZero();
-        UpdateApplication();
-        ShowPVRChannelInfo();
+        CFileItem currentFile(g_application.CurrentFileItem());
+        CPVRChannel *currentChannel = currentFile.GetPVRChannelInfoTag();
+        CFileItemPtr item = g_PVRChannelGroups->Get(currentChannel->IsRadio())->GetSelectedGroup()->GetByChannelDown(*currentChannel);
+        SwitchToChannel(item);
         return true;
       }
       break;
 
       case ACTION_CHANNEL_SWITCH:
       {
-        CSingleLock lock(m_channel_switch_csection);
         int iChannelNumber = action.GetAmount();
-        g_PVRManager.GetCurrentChannel(channel);
-        CFileItemPtr item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelNumber(iChannelNumber);
-        SetNextChannel(new CFileItem(*item->GetPVRChannelInfoTag()));
-        m_channelEntryTimer.StartZero();
-        g_PVRManager.PerformChannelSwitch(*m_nextChannel->GetPVRChannelInfoTag(), true);
-        UpdateApplication();
-        ShowPVRChannelInfo();
+        CFileItem currentFile(g_application.CurrentFileItem());
+        CPVRChannel *currentChannel = currentFile.GetPVRChannelInfoTag();
+        CFileItemPtr item = g_PVRChannelGroups->Get(currentChannel->IsRadio())->GetSelectedGroup()->GetByChannelNumber(iChannelNumber);
+        SwitchToChannel(item);
         return true;
       }
       break;
@@ -2618,5 +2603,19 @@ void CAMLPlayer::SetNextChannel(CFileItem *nextChannel)
     delete m_nextChannel;
   }
   m_nextChannel = nextChannel;
+}
+
+void CAMLPlayer::SwitchToChannel(CFileItemPtr channel)
+{
+  CSingleLock lock(m_channel_switch_csection);
+  SetNextChannel(new CFileItem(*channel->GetPVRChannelInfoTag()));  
+  m_channelEntryTimer.StartZero();
+  bool bIsRadio = channel->GetPVRChannelInfoTag()->IsRadio();
+  CPVRChannelGroupPtr selectedGroup = g_PVRChannelGroups->Get(bIsRadio)->GetSelectedGroup();
+  int iChannelNumber = selectedGroup->GetChannelNumber(*channel->GetPVRChannelInfoTag());
+  m_nextChannel->GetPVRChannelInfoTag()->SetCachedChannelNumber(iChannelNumber);
+  g_PVRManager.PerformChannelSwitch(*m_nextChannel->GetPVRChannelInfoTag(), true);
+  UpdateApplication();
+  ShowPVRChannelInfo();
 }
 

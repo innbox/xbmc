@@ -199,6 +199,7 @@ private:
   bool          CheckDelayedChannelEntry(void);
   bool          UpdateApplication(void);
   void          SetNextChannel(CFileItem *nextChannel);
+  void          SwitchToChannel(CFileItemPtr channel);
 
   void          FindSubtitleFiles();
   int           AddSubtitleFile(const std::string& filename, const std::string& subfilename = "");
