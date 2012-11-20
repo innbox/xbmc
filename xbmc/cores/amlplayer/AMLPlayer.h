@@ -23,6 +23,7 @@
 #include "cores/IPlayer.h"
 #include "dialogs/GUIDialogBusy.h"
 #include "threads/Thread.h"
+#include "utils/Stopwatch.h"
 
 typedef struct AMLChapterInfo AMLChapterInfo;
 typedef struct AMLPlayerStreamInfo AMLPlayerStreamInfo;
@@ -196,6 +197,8 @@ private:
 
   bool          ShowPVRChannelInfo(void);
   bool          CheckDelayedChannelEntry(void);
+  bool          UpdateApplication(void);
+  void          SetNextChannel(CFileItem *nextChannel);
 
   void          FindSubtitleFiles();
   int           AddSubtitleFile(const std::string& filename, const std::string& subfilename = "");
@@ -260,4 +263,7 @@ private:
   std::vector<AMLPlayerStreamInfo*> m_subtitle_streams;
   std::vector<AMLChapterInfo*>      m_chapters;
 
+  CFileItem              *m_nextChannel;
+  CStopWatch              m_channelEntryTimer;
+  CCriticalSection        m_channel_switch_csection;
 };

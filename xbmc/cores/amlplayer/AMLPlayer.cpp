@@ -563,6 +563,8 @@ CAMLPlayer::CAMLPlayer(IPlayerCallback &callback)
   m_dvdOverlayContainer = new CDVDOverlayContainer;
   m_dvdPlayerSubtitle = new CDVDPlayerSubtitle(m_dvdOverlayContainer);
 
+  m_nextChannel = NULL;
+  
   // Suspend AE temporarily so exclusive or hog-mode sinks
   // don't block external player's access to audio device
   if (!CAEFactory::Suspend())
@@ -574,7 +576,7 @@ CAMLPlayer::CAMLPlayer(IPlayerCallback &callback)
 CAMLPlayer::~CAMLPlayer()
 {
   CloseFile();
-
+  SetNextChannel(NULL);
   delete m_dvdPlayerSubtitle;
   delete m_dvdOverlayContainer;
   delete m_dll, m_dll = NULL;
@@ -628,6 +630,8 @@ bool CAMLPlayer::OpenFile(const CFileItem &file, const CPlayerOptions &options)
     m_zoom           = -1;
     m_contrast       = -1;
     m_brightness     = -1;
+
+    SetNextChannel(NULL);
 
     ClearStreamInfos();
 
@@ -832,6 +836,8 @@ void CAMLPlayer::SeekPercentage(float fPercent)
 float CAMLPlayer::GetPercentage()
 {
   GetStatus();
+  if (m_item.IsPVRChannel())
+    return 1.0f * (float)g_PVRManager.TranslateIntInfo(PVR_PLAYING_PROGRESS);
   if (m_duration_ms)
     return 100.0f * (float)m_elapsed_ms/(float)m_duration_ms;
   else
@@ -1645,6 +1651,7 @@ void CAMLPlayer::Process()
 
           default:
           case PLAYER_RUNNING:
+            CheckDelayedChannelEntry();
             GetStatus();
             // playback status, decoder is running
             break;
@@ -2423,6 +2430,51 @@ void CAMLPlayer::SetVideoRect(const CRect &SrcRect, const CRect &DestRect)
     dst_rect.y2 *= yscale;
   }
 
+  if (m_view_mode == 0)
+  {
+    // calculate correct aspect ratio in normal view mode
+    CSingleLock lock(m_aml_csection);
+    if (m_video_streams.size() > 0 && m_video_index <= (int)(m_video_streams.size() - 1))
+    {
+      int pa_width = m_video_streams[m_video_index]->aspect_ratio_num;
+      int pa_height = m_video_streams[m_video_index]->aspect_ratio_den;
+      int video_width = m_video_streams[m_video_index]->width;
+      int video_height = m_video_streams[m_video_index]->height;
+
+      float aspect_width = (float) pa_width * video_width;
+      float aspect_height = (float) pa_height * video_height;
+
+      float total_width = dst_rect.x1 + dst_rect.x2;
+      float total_height = dst_rect.y1 + dst_rect.y2;
+
+      float max_width = (total_height / aspect_height) * aspect_width;
+      float max_height = (total_width / aspect_width) * aspect_height;
+
+      if (max_width > total_width)
+      {
+        dst_rect.x1 = 0;
+        dst_rect.x2 = total_width;
+        dst_rect.y1 = (total_height - max_height) / 2;
+        dst_rect.y2 = max_height + (total_height - max_height) / 2;
+      }
+      else
+      {
+        dst_rect.y1 = 0;
+        dst_rect.y2 = total_height;
+        dst_rect.x1 = (total_width - max_width) / 2;
+        dst_rect.x2 = max_width + (total_width - max_width) / 2;
+      }
+
+      // zoom 1 pixel over the top and bottom (not for 1:1 pixel mapping)
+      if (pa_width != 1 && pa_height != 1 && dst_rect.y1 < 13 && dst_rect.y1 > -3)
+      {
+        float diff_y = dst_rect.y1 + 3;
+        dst_rect.y1 -= diff_y;
+        dst_rect.y2 += diff_y;
+      }
+    }
+  }
+
   ShowMainVideo(false);
 
   // goofy 0/1 based difference in aml axis coordinates.
@@ -2459,35 +2511,51 @@ bool CAMLPlayer::OnAction(const CAction &action)
   {
     CPVRChannelPtr channel;
     CFileItemPtr item;
+    unsigned int iChannelNumber;
     switch (action.GetID())
     {
       case ACTION_MOVE_UP:
       case ACTION_NEXT_ITEM:
       case ACTION_CHANNEL_UP:
+      {
+        CSingleLock lock(m_channel_switch_csection);
+        g_PVRManager.ChannelUp(&iChannelNumber, true);
         g_PVRManager.GetCurrentChannel(channel);
-        item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelUp(*channel);
-        CApplicationMessenger::Get().PlayFile(*item.get(), false);
+        CFileItemPtr item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelNumber(iChannelNumber);
+        SetNextChannel(new CFileItem(*item->GetPVRChannelInfoTag()));
+        m_channelEntryTimer.StartZero();
+        UpdateApplication();
         ShowPVRChannelInfo();
         return true;
+      }
       break;
 
       case ACTION_MOVE_DOWN:
       case ACTION_PREV_ITEM:
       case ACTION_CHANNEL_DOWN:
+      {
+        CSingleLock lock(m_channel_switch_csection);
+        g_PVRManager.ChannelDown(&iChannelNumber, true);
         g_PVRManager.GetCurrentChannel(channel);
-        item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelDown(*channel);
-        CApplicationMessenger::Get().PlayFile(*item.get(), false);
+        CFileItemPtr item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelNumber(iChannelNumber);
+        SetNextChannel(new CFileItem(*item->GetPVRChannelInfoTag()));
+        m_channelEntryTimer.StartZero();
+        UpdateApplication();
         ShowPVRChannelInfo();
         return true;
+      }
       break;
 
       case ACTION_CHANNEL_SWITCH:
       {
-        // Offset from key codes back to button number
+        CSingleLock lock(m_channel_switch_csection);
         int iChannelNumber = action.GetAmount();
         g_PVRManager.GetCurrentChannel(channel);
         CFileItemPtr item = g_PVRChannelGroups->Get(channel->IsRadio())->GetSelectedGroup()->GetByChannelNumber(iChannelNumber);
-        CApplicationMessenger::Get().PlayFile(*item.get(), false);
+        SetNextChannel(new CFileItem(*item->GetPVRChannelInfoTag()));
+        m_channelEntryTimer.StartZero();
+        g_PVRManager.PerformChannelSwitch(*m_nextChannel->GetPVRChannelInfoTag(), true);
+        UpdateApplication();
         ShowPVRChannelInfo();
         return true;
       }
@@ -2519,16 +2587,36 @@ bool CAMLPlayer::ShowPVRChannelInfo(void)
 bool CAMLPlayer::CheckDelayedChannelEntry(void)
 {
   bool bReturn(false);
-/*
-  if (m_iChannelEntryTimeOut > 0 && XbmcThreads::SystemClockMillis() >= m_iChannelEntryTimeOut)
+
+  CSingleLock lock(m_channel_switch_csection);
+  if (m_channelEntryTimer.IsRunning() && m_channelEntryTimer.GetElapsedMilliseconds() >= g_guiSettings.GetInt("pvrplayback.channelentrytimeout"))
   {
-    CFileItem channelItem(g_application.CurrentFileItem());
-    CApplicationMessenger::Get().PlayFile(*channelItem, false);
+    CFileItem playItem = g_application.CurrentFileItem();
+    CApplicationMessenger::Get().PlayFile(playItem, false);
 
     bReturn = true;
-    m_iChannelEntryTimeOut = 0;
+    m_channelEntryTimer.Stop();
   }
-*/
   return bReturn;
+}
+
+bool CAMLPlayer::UpdateApplication(void)
+{
+  CFileItem item(g_application.CurrentFileItem());
+  if(g_PVRManager.UpdateItem(item))
+  {
+    g_application.CurrentFileItem() = item;
+    CApplicationMessenger::Get().SetCurrentItem(item);
+  }
+  return true;
+}
+
+void CAMLPlayer::SetNextChannel(CFileItem *nextChannel)
+{
+  if (m_nextChannel)
+  {
+    delete m_nextChannel;
+  }
+  m_nextChannel = nextChannel;
 }
 
