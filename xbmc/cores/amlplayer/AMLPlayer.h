@@ -200,6 +200,7 @@ private:
   bool          UpdateApplication(void);
   void          SetNextChannel(CFileItem *nextChannel);
   void          SwitchToChannel(CFileItemPtr channel);
+  void          GetStreamInfo(void);
 
   void          FindSubtitleFiles();
   int           AddSubtitleFile(const std::string& filename, const std::string& subfilename = "");
@@ -253,6 +254,8 @@ private:
   float                   m_zoom;
   int                     m_contrast;
   int                     m_brightness;
+  float                   m_aspect_ratio;
+  bool                    m_aspect_ratio_changed;
 
   CCriticalSection        m_aml_csection;
   CCriticalSection        m_aml_state_csection;

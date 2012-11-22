@@ -630,6 +630,8 @@ bool CAMLPlayer::OpenFile(const CFileItem &file, const CPlayerOptions &options)
     m_zoom           = -1;
     m_contrast       = -1;
     m_brightness     = -1;
+    m_aspect_ratio   = -1;
+    m_aspect_ratio_changed = false;
 
     SetNextChannel(NULL);
 
@@ -2228,6 +2230,10 @@ bool CAMLPlayer::GetStatus()
   //CLog::Log(LOGDEBUG, "CAMLPlayer::GetStatus: audio_bufferlevel(%f), video_bufferlevel(%f), bufed_time(%d), bufed_pos(%lld)",
   //  player_info.audio_bufferlevel, player_info.video_bufferlevel, player_info.bufed_time, player_info.bufed_pos);
 
+  // check for stream info changes
+  lock.Leave();
+  GetStreamInfo();
+
   return true;
 }
 
@@ -2399,10 +2405,11 @@ void CAMLPlayer::SetVideoRect(const CRect &SrcRect, const CRect &DestRect)
   }
 
   // check if destination rect or video view mode has changed
-  if ((m_dst_rect != DestRect) || (m_view_mode != g_settings.m_currentVideoSettings.m_ViewMode))
+  if ((m_dst_rect != DestRect) || (m_view_mode != g_settings.m_currentVideoSettings.m_ViewMode) || m_aspect_ratio_changed)
   {
     m_dst_rect  = DestRect;
     m_view_mode = g_settings.m_currentVideoSettings.m_ViewMode;
+    m_aspect_ratio_changed = false;
   }
   else
   {
@@ -2450,6 +2457,7 @@ void CAMLPlayer::SetVideoRect(const CRect &SrcRect, const CRect &DestRect)
 
       float aspect_width = (float) pa_width * video_width;
       float aspect_height = (float) pa_height * video_height;
+      m_aspect_ratio = aspect_width / aspect_height;
 
       float total_width = dst_rect.x1 + dst_rect.x2;
       float total_height = dst_rect.y1 + dst_rect.y2;
@@ -2624,5 +2632,49 @@ void CAMLPlayer::SwitchToChannel(CFileItemPtr channel)
   g_PVRManager.PerformChannelSwitch(*m_nextChannel->GetPVRChannelInfoTag(), true);
   UpdateApplication();
   ShowPVRChannelInfo();
+}
+
+void CAMLPlayer::GetStreamInfo(void)
+{
+  // FIXME: currently not working due to libamplayer constraints (the stream info doesn't get updated at all)
+    return;
+
+  // currenlty we are only looking for aspect ratio changes in the stream...
+  media_info_t media_info;
+  int res = m_dll->player_get_media_info(m_pid, &media_info);
+  if (res != PLAYER_SUCCESS)
+    return;
+
+  // video info
+  if (media_info.stream_info.has_video && 
+      media_info.stream_info.total_video_num > 0 && 
+      m_video_index <= media_info.stream_info.total_video_num)
+  {
+    int pa_width = media_info.video_info[m_video_index]->aspect_ratio_num;
+    int pa_height = media_info.video_info[m_video_index]->aspect_ratio_den;
+    int video_width = media_info.video_info[m_video_index]->width;
+    int video_height = media_info.video_info[m_video_index]->height;
+
+    // ignore invalid values
+    if (pa_width == 0 || pa_height == 0 || video_width == 0 || video_height == 0)
+      return;
+  
+    float aspect_width = (float) pa_width * video_width;
+    float aspect_height = (float) pa_height * video_height;
+    float aspect_ratio = aspect_width / aspect_height;
+
+    if (aspect_ratio != m_aspect_ratio)
+    {
+      CSingleLock lock(m_aml_csection);
+      if (m_video_streams.size() > 0 && m_video_index <= (int)(m_video_streams.size() - 1))
+      {
+        m_video_streams[m_video_index]->aspect_ratio_num = pa_width;
+        m_video_streams[m_video_index]->aspect_ratio_den = pa_height;
+        m_video_streams[m_video_index]->width = video_width;
+        m_video_streams[m_video_index]->height = video_height;
+        m_aspect_ratio_changed = true;
+      }
+    } 
+  }
 }
 
