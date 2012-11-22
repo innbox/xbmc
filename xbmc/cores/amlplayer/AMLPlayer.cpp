@@ -2441,6 +2441,13 @@ void CAMLPlayer::SetVideoRect(const CRect &SrcRect, const CRect &DestRect)
       int video_width = m_video_streams[m_video_index]->width;
       int video_height = m_video_streams[m_video_index]->height;
 
+      // sometimes we get an invalid pixel aspect ratio... just use 1:1 in this case
+      if (pa_width == 0 || pa_height == 0)
+      {
+        pa_width = 1;
+        pa_height = 1;
+      }
+
       float aspect_width = (float) pa_width * video_width;
       float aspect_height = (float) pa_height * video_height;
 
