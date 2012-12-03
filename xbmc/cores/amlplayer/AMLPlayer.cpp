@@ -619,6 +619,8 @@ bool CAMLPlayer::OpenFile(const CFileItem &file, const CPlayerOptions &options)
     m_video_height   =  0;
     m_video_fps_numerator = 25;
     m_video_fps_denominator = 1;
+    m_aspect_ratio_num = 0;
+    m_aspect_ratio_den = 0;
 
     m_subtitle_delay =  0;
     m_subtitle_thread = NULL;
@@ -1619,7 +1621,7 @@ void CAMLPlayer::Process()
         CLog::Log(LOGDEBUG,"%s - change configuration. %dx%d. framerate: %4.2f. format: %s",
           __FUNCTION__, width, height, fFrameRate, formatstr.c_str());
         g_renderManager.IsConfigured();
-        if (!g_renderManager.Configure(width, height, width, height, fFrameRate, flags, RENDER_FMT_BYPASS, 0, 0))
+        if (!g_renderManager.Configure(width, height, m_aspect_ratio_num*width, m_aspect_ratio_den*height, fFrameRate, flags, RENDER_FMT_BYPASS, 0, 0))
         {
           CLog::Log(LOGERROR, "%s - failed to configure renderer", __FUNCTION__);
         }
@@ -2085,10 +2087,18 @@ bool CAMLPlayer::WaitForFormatValid(int timeout_ms)
           m_video_height= media_info.video_info[m_video_index]->height;
           m_video_fps_numerator	= media_info.video_info[m_video_index]->frame_rate_num;
           m_video_fps_denominator = media_info.video_info[m_video_index]->frame_rate_den;
+          m_aspect_ratio_num = media_info.video_info[m_video_index]->aspect_ratio_num;
+          m_aspect_ratio_den = media_info.video_info[m_video_index]->aspect_ratio_den;
 
           // bail if we do not get a valid width/height
           if (m_video_width == 0 || m_video_height == 0)
             return false;
+
+          if (m_aspect_ratio_num == 0 || m_aspect_ratio_den == 0)
+          {
+            m_aspect_ratio_num = 1;
+            m_aspect_ratio_den = 1;
+          }
         }
 
         // audio info
@@ -2439,54 +2449,12 @@ void CAMLPlayer::SetVideoRect(const CRect &SrcRect, const CRect &DestRect)
 
   if (m_view_mode == 0)
   {
-    // calculate correct aspect ratio in normal view mode
-    CSingleLock lock(m_aml_csection);
-    if (m_video_streams.size() > 0 && m_video_index <= (int)(m_video_streams.size() - 1))
+    // zoom 1 pixel over the top and bottom (not for 1:1 pixel mapping)
+    if (m_aspect_ratio_num != 1 && m_aspect_ratio_den != 1 && dst_rect.y1 < 13 && dst_rect.y1 > -3)
     {
-      int pa_width = m_video_streams[m_video_index]->aspect_ratio_num;
-      int pa_height = m_video_streams[m_video_index]->aspect_ratio_den;
-      int video_width = m_video_streams[m_video_index]->width;
-      int video_height = m_video_streams[m_video_index]->height;
-
-      // sometimes we get an invalid pixel aspect ratio... just use 1:1 in this case
-      if (pa_width == 0 || pa_height == 0)
-      {
-        pa_width = 1;
-        pa_height = 1;
-      }
-
-      float aspect_width = (float) pa_width * video_width;
-      float aspect_height = (float) pa_height * video_height;
-      m_aspect_ratio = aspect_width / aspect_height;
-
-      float total_width = dst_rect.x1 + dst_rect.x2;
-      float total_height = dst_rect.y1 + dst_rect.y2;
-
-      float max_width = (total_height / aspect_height) * aspect_width;
-      float max_height = (total_width / aspect_width) * aspect_height;
-
-      if (max_width > total_width)
-      {
-        dst_rect.x1 = 0;
-        dst_rect.x2 = total_width;
-        dst_rect.y1 = (total_height - max_height) / 2;
-        dst_rect.y2 = max_height + (total_height - max_height) / 2;
-      }
-      else
-      {
-        dst_rect.y1 = 0;
-        dst_rect.y2 = total_height;
-        dst_rect.x1 = (total_width - max_width) / 2;
-        dst_rect.x2 = max_width + (total_width - max_width) / 2;
-      }
-
-      // zoom 1 pixel over the top and bottom (not for 1:1 pixel mapping)
-      if (pa_width != 1 && pa_height != 1 && dst_rect.y1 < 13 && dst_rect.y1 > -3)
-      {
-        float diff_y = dst_rect.y1 + 3;
-        dst_rect.y1 -= diff_y;
-        dst_rect.y2 += diff_y;
-      }
+      float diff_y = dst_rect.y1 + 3;
+      dst_rect.y1 -= diff_y;
+      dst_rect.y2 += diff_y;
     }
   }
 

@@ -237,6 +237,8 @@ private:
   int                     m_video_height;
   float                   m_video_fps_numerator;
   float                   m_video_fps_denominator;
+  int                     m_aspect_ratio_num;
+  int                     m_aspect_ratio_den;
 
   int                     m_subtitle_index;
   int                     m_subtitle_count;
