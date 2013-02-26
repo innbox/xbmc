@@ -27,7 +27,7 @@ extern "C"
 {
 // beware, these will alter the structs
 // in player_type.h.
-#if 1
+#if 0
   #define HAS_AMLPLAYER_CHAPTERS
   #define HAS_AMLPLAYER_AUDIO_LANG
   #define HAS_AMLPLAYER_AUDIO_SETDELAY

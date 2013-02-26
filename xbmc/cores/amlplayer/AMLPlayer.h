@@ -58,6 +58,11 @@ protected:
 class CDVDPlayerSubtitle;
 class CDVDOverlayContainer;
 
+namespace XFILE
+{
+  class CPVRFile;
+}
+
 class CAMLPlayer : public IPlayer, public CThread
 {
 public:
@@ -272,5 +277,5 @@ private:
   CFileItem              *m_nextChannel;
   CStopWatch              m_channelEntryTimer;
   CCriticalSection        m_channel_switch_csection;
-  XFILE::CFile           *m_pvrFile;
+  XFILE::CPVRFile        *m_pvrFile;
 };

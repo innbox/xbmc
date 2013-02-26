@@ -58,6 +58,7 @@
 // for pvr
 #include "Application.h"
 #include "ApplicationMessenger.h"
+#include "filesystem/PVRFile.h"
 #include "xbmc/pvr/PVRManager.h"
 #include "xbmc/pvr/addons/PVRClients.h"
 #include "xbmc/pvr/channels/PVRChannel.h"
@@ -636,6 +637,7 @@ bool CAMLPlayer::OpenFile(const CFileItem &file, const CPlayerOptions &options)
     m_aspect_ratio_changed = false;
 
     SetNextChannel(NULL);
+    m_pvrFile = NULL;
 
     ClearStreamInfos();
 
@@ -1490,9 +1492,9 @@ void CAMLPlayer::Process()
     else if (url.Left(strlen("http://")).Equals("http://"))
     {
       // the name string needs to persist
-      static const char *http_name = "xb-http";
-      vfs_protocol.name = http_name;
-      url = "xb-" + url;
+      //static const char *http_name = "xb-http";
+      //vfs_protocol.name = http_name;
+      //url = "xb-" + url;
     }
     else if (url.Left(strlen("https://")).Equals("https://"))
     {
