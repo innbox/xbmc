@@ -675,6 +675,13 @@ bool CAMLPlayer::CloseFile()
 {
   CLog::Log(LOGDEBUG, "CAMLPlayer::CloseFile");
 
+  if (m_pvrFile)
+  {
+    m_pvrFile->Close();
+    delete m_pvrFile;
+    m_pvrFile = NULL;
+  }
+
   // set the abort request so that other threads can finish up
   m_bAbortRequest = true;
 
@@ -1417,10 +1424,30 @@ void CAMLPlayer::Process()
     // initial PVR support for tvheadend like addons (http streaming)
     if (url.Left(strlen("pvr://")).Equals("pvr://"))
     {
-      // the name string needs to persist
-      static const char *http_name = "xb-pvr";
-      vfs_protocol.name = http_name;
-      url = "xb-" + url;
+      if (m_pvrFile)
+      {
+        m_pvrFile->Close();
+        delete m_pvrFile;
+        m_pvrFile = NULL;
+      }
+
+      m_pvrFile = new XFILE::CPVRFile;
+      CURL pvrURL = CURL(url);
+      if (!m_pvrFile->Open(pvrURL))
+      {
+        delete m_pvrFile;
+        m_pvrFile = NULL;
+        throw "CAMLPlayer::Process:pvr could not open file";
+      }
+
+      url = XFILE::CPVRFile::TranslatePVRFilename(url.c_str());
+      if(url.substr(0, 6) == "pvr://")
+      {
+        // this addon does not support raw streams (not supported)
+        delete m_pvrFile;
+        m_pvrFile = NULL;
+        throw "CAMLPlayer::Process:player init failed";
+      }
     }
     if (url.Left(strlen("smb://")).Equals("smb://"))
     {
